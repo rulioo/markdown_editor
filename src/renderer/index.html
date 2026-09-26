@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!--
+      内容安全策略（design.md NFR-4）：
+      渲染进程只加载本地资源，不允许连接任何外部主机。
+      style-src 放开 'unsafe-inline' 是因为 Vue SFC 与 CodeMirror 都依赖运行时注入样式；
+      script-src 保持 'self'，不放开 'unsafe-eval'。
+    -->
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self';
+               script-src 'self';
+               style-src 'self' 'unsafe-inline';
+               img-src 'self' data: blob: file:;
+               media-src 'self' data: blob:;
+               font-src 'self' data:;
+               connect-src 'self' ws: wss:;
+               object-src 'none';
+               base-uri 'none';
+               form-action 'none'"
+    />
+    <!--
+      这里是 APP_TITLE（src/shared/app-meta.ts）的副本：HTML 无法 import TS，
+      而这个标题必须在脚本执行前就存在。两者漂移由 test/app-meta.test.ts 拦住。
+    -->
+    <title>MarkText 克隆版</title>
+  </head>
+  <body>
+    <div id="app"></div>
+    <script type="module" src="./main.ts"></script>
+  </body>
+</html>

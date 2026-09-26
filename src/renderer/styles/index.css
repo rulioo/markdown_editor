@@ -1,0 +1,650 @@
+/*
+ * 应用外壳样式。
+ * 通用颜色一律走 CSS 变量（定义在 shared/theme.ts，运行时注入 <style>），
+ * 因此这里不需要写任何 [data-theme='dark'] 分支。
+ *
+ * 例外是下面这组 --cm-* 变量：它们只服务于 CodeMirror 的语法着色，
+ * 导出 HTML 用不到，所以留在渲染进程而不是 shared/theme.ts。
+ * 编辑器主题引用这些变量，于是——**切换亮暗主题不需要重配编辑器**。
+ */
+
+:root {
+  --cm-active-line: rgba(0, 0, 0, 0.035);
+  /* 正文一律近黑：标题靠字号字重区分、行内代码靠浅灰底区分、列表不做区分。
+   * 之前这里是 蓝/红/橙，而 lezer 的标签是**带 /... 的**（整段内容 + 所有后代），
+   * 于是「列表里的正文」整段变成橙色——正文颜色就是这么被撑起来的。 */
+  --cm-heading: #1f2328;
+  --cm-strong: #1f2328;
+  --cm-link: #0969da;
+  --cm-url: #8c959f;
+  --cm-code: #1f2328;
+  --cm-list: #1f2328;
+  --cm-marker: #8c959f;
+
+  --cm-keyword: #cf222e;
+  --cm-string: #0a3069;
+  --cm-number: #0550ae;
+  --cm-comment: #6e7781;
+  --cm-type: #953800;
+  --cm-function: #8250df;
+  --cm-operator: #0550ae;
+
+  --cm-search-match: rgba(255, 196, 0, 0.4);
+  --cm-search-match-border: rgba(191, 145, 0, 0.6);
+  --cm-search-match-active: rgba(255, 140, 0, 0.6);
+  --cm-selection-match: rgba(120, 200, 120, 0.35);
+}
+
+[data-theme='dark'] {
+  --cm-active-line: rgba(255, 255, 255, 0.045);
+  /* 同亮色主题：正文近白，只有链接与语法标记带色 */
+  --cm-heading: #d4d4d4;
+  --cm-strong: #e6edf3;
+  --cm-link: #58a6ff;
+  --cm-url: #6e7681;
+  --cm-code: #d4d4d4;
+  --cm-list: #d4d4d4;
+  --cm-marker: #6e7681;
+
+  --cm-keyword: #ff7b72;
+  --cm-string: #a5d6ff;
+  --cm-number: #79c0ff;
+  --cm-comment: #8b949e;
+  --cm-type: #ffa657;
+  --cm-function: #d2a8ff;
+  --cm-operator: #79c0ff;
+
+  --cm-search-match: rgba(210, 153, 34, 0.45);
+  --cm-search-match-border: rgba(210, 153, 34, 0.8);
+  --cm-search-match-active: rgba(255, 140, 0, 0.55);
+  --cm-selection-match: rgba(60, 140, 60, 0.45);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#app {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+}
+
+body {
+  font-family: var(--ui-font-family, "Microsoft YaHei", "PingFang SC", "Segoe UI", sans-serif);
+  font-size: 13px;
+  color: var(--fg);
+  background: var(--bg);
+  /* 桌面应用不需要浏览器式的文本选择与拖拽 */
+  user-select: none;
+}
+
+button {
+  font-family: inherit;
+  font-size: inherit;
+  color: inherit;
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0;
+}
+
+input,
+select {
+  font-family: inherit;
+  font-size: inherit;
+  color: var(--fg);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 4px 8px;
+  outline: none;
+}
+input:focus,
+select:focus {
+  border-color: var(--accent);
+}
+
+/* --------------------------------- 滚动条 --------------------------------- */
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--scrollbar);
+  border-radius: 5px;
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--scrollbar-hover);
+  background-clip: content-box;
+}
+
+/* --------------------------------- 整体布局 --------------------------------- */
+
+.app {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background: var(--bg);
+}
+
+.app-body {
+  flex: 1;
+  display: flex;
+  min-height: 0;
+}
+
+.app-main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+
+/* --------------------------------- 标题栏 --------------------------------- */
+
+.title-bar {
+  height: 36px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: var(--bg-secondary);
+  border-bottom: 1px solid var(--border);
+  /* 无边框窗口：整条标题栏作为拖拽区域 */
+  -webkit-app-region: drag;
+  padding-left: 12px;
+}
+
+.title-bar__title {
+  font-size: 12px;
+  color: var(--fg-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.title-bar__controls {
+  display: flex;
+  -webkit-app-region: no-drag;
+  height: 100%;
+}
+
+.title-bar__button {
+  width: 46px;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--fg-muted);
+  transition: background 0.12s;
+}
+.title-bar__button:hover {
+  background: var(--bg-hover);
+  color: var(--fg);
+}
+.title-bar__button--close:hover {
+  background: var(--danger);
+  color: #fff;
+}
+
+/* --------------------------------- 标签栏 --------------------------------- */
+
+.tab-bar {
+  height: 36px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: stretch;
+  background: var(--bg-secondary);
+  border-bottom: 1px solid var(--border);
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+.tab-bar::-webkit-scrollbar {
+  height: 0;
+}
+
+.tab {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 10px;
+  min-width: 110px;
+  max-width: 220px;
+  border-right: 1px solid var(--border);
+  color: var(--fg-muted);
+  cursor: pointer;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.tab:hover {
+  background: var(--bg-hover);
+}
+.tab--active {
+  background: var(--bg);
+  color: var(--fg);
+  /* 用顶部高亮条表示激活，避免整行跳动 */
+  box-shadow: inset 0 2px 0 var(--accent);
+}
+
+.tab__name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.tab__close {
+  width: 16px;
+  height: 16px;
+  border-radius: 3px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  line-height: 1;
+  opacity: 0;
+  flex-shrink: 0;
+}
+.tab:hover .tab__close,
+.tab--active .tab__close {
+  opacity: 0.7;
+}
+.tab__close:hover {
+  background: var(--bg-active);
+  opacity: 1;
+}
+
+/* 未保存标记：小圆点，悬停时变成关闭按钮 */
+.tab__dirty {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--accent);
+  flex-shrink: 0;
+}
+
+.tab-bar__new {
+  width: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--fg-muted);
+  flex-shrink: 0;
+}
+.tab-bar__new:hover {
+  background: var(--bg-hover);
+  color: var(--fg);
+}
+
+/* --------------------------------- 侧边栏 --------------------------------- */
+
+.sidebar {
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-secondary);
+  border-right: 1px solid var(--border);
+  flex-shrink: 0;
+  position: relative;
+  min-width: 0;
+}
+
+.sidebar__tabs {
+  display: flex;
+  height: 32px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.sidebar__tab {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  color: var(--fg-muted);
+  border-bottom: 2px solid transparent;
+}
+.sidebar__tab:hover {
+  color: var(--fg);
+}
+.sidebar__tab--active {
+  color: var(--accent);
+  border-bottom-color: var(--accent);
+}
+
+.sidebar__content {
+  flex: 1;
+  overflow: auto;
+  min-height: 0;
+}
+
+/* 拖拽调整宽度的手柄 */
+.sidebar__resizer {
+  position: absolute;
+  top: 0;
+  right: -3px;
+  width: 6px;
+  height: 100%;
+  cursor: col-resize;
+  z-index: 5;
+}
+.sidebar__resizer:hover {
+  background: var(--accent);
+  opacity: 0.35;
+}
+
+.sidebar__section-title {
+  padding: 8px 12px 4px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--fg-subtle);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.sidebar__empty {
+  padding: 20px 16px;
+  color: var(--fg-subtle);
+  font-size: 12px;
+  line-height: 1.8;
+  text-align: center;
+}
+
+/* --------------------------------- 文件树 --------------------------------- */
+
+.tree-node {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  height: 24px;
+  padding-right: 8px;
+  font-size: 13px;
+  color: var(--fg);
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+}
+.tree-node:hover {
+  background: var(--bg-hover);
+}
+.tree-node--active {
+  background: var(--bg-active);
+  color: var(--accent);
+}
+.tree-node__arrow {
+  width: 14px;
+  flex-shrink: 0;
+  font-size: 9px;
+  color: var(--fg-subtle);
+  transition: transform 0.12s;
+}
+.tree-node__arrow--open {
+  transform: rotate(90deg);
+}
+.tree-node__icon {
+  flex-shrink: 0;
+  font-size: 12px;
+  opacity: 0.8;
+}
+.tree-node__name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* --------------------------------- 大纲 --------------------------------- */
+
+.outline-item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 4px 12px;
+  color: var(--fg-muted);
+  font-size: 13px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.outline-item:hover {
+  background: var(--bg-hover);
+  color: var(--fg);
+}
+
+/* --------------------------------- 编辑区 --------------------------------- */
+
+.editor-pane {
+  flex: 1;
+  min-height: 0;
+  position: relative;
+  display: flex;
+  background: var(--bg);
+}
+
+/* CodeMirror 挂载点。flex:1 + min-width:0 才能让它正确参与分栏 */
+.editor-pane__host {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 100%;
+  overflow: hidden;
+}
+
+.editor-pane__host .cm-editor {
+  height: 100%;
+}
+
+/* 分栏模式下编辑区与预览各占一半 */
+.editor-pane--split .editor-pane__host,
+.editor-pane--split .preview-pane {
+  flex: 1 1 50%;
+}
+
+.editor-pane--split .preview-pane {
+  border-left: 1px solid var(--border);
+}
+
+/* ------------------------------- 预览面板 ------------------------------- */
+
+.preview-pane {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 100%;
+  overflow: auto;
+  background: var(--bg);
+}
+
+.preview-pane .markdown-body {
+  padding: 24px 32px;
+  max-width: 860px;
+  margin: 0 auto;
+  font-size: var(--md-font-size, 16px);
+  line-height: var(--md-line-height, 1.7);
+  font-family: var(--md-font-family, sans-serif);
+  color: var(--fg);
+  user-select: text;
+}
+
+.preview-pane__empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  color: var(--fg-subtle);
+  font-size: 13px;
+}
+
+/* ---------------------------- Live Preview 渲染 ----------------------------
+ * 这些 class 由 editor/livePreview.ts 盖在语法树节点上。
+ * 效果是「除光标所在行外，其余行按渲染结果呈现」。
+ */
+
+.cm-lp-h1 { font-size: 1.9em; font-weight: 700; line-height: 1.3; }
+.cm-lp-h2 { font-size: 1.55em; font-weight: 700; line-height: 1.35; }
+.cm-lp-h3 { font-size: 1.3em; font-weight: 600; }
+.cm-lp-h4 { font-size: 1.12em; font-weight: 600; }
+.cm-lp-h5 { font-size: 1em; font-weight: 600; }
+.cm-lp-h6 { font-size: 0.95em; font-weight: 600; color: var(--fg-muted); }
+
+.cm-lp-strong { font-weight: 700; }
+.cm-lp-em { font-style: italic; }
+.cm-lp-strike { text-decoration: line-through; color: var(--fg-muted); }
+
+.cm-lp-code {
+  font-family: var(--md-code-font-family, Consolas, monospace);
+  font-size: 0.92em;
+  background: var(--code-bg);
+  color: var(--cm-code);
+  padding: 0.1em 0.3em;
+  border-radius: 3px;
+}
+
+.cm-lp-link { color: var(--cm-link); text-decoration: none; }
+.cm-lp-link:hover { text-decoration: underline; }
+.cm-lp-image { color: var(--cm-link); }
+
+/* 引用块：整行加左侧竖线 */
+.cm-lp-quote {
+  border-left: 3px solid var(--quote-border);
+  color: var(--fg-muted);
+  padding-left: 12px !important;
+  margin-left: 32px;
+}
+
+/* 分隔线：把 --- 抹掉后由本行的上边框代替 */
+.cm-lp-hr {
+  border-top: 1px solid var(--border);
+  margin-top: 0.6em;
+  padding-top: 0.6em;
+  min-height: 0.6em;
+}
+
+/* 围栏代码块：整块给底色 */
+.cm-lp-codeblock {
+  background: var(--code-bg);
+}
+
+.cm-lp-task {
+  font-family: var(--md-code-font-family, Consolas, monospace);
+  color: var(--cm-list);
+}
+
+/* 表格 widget（由 tablePreview.ts 的块替换插入）。
+ * 表格自身的样式在 shared/theme.ts 里与预览面板共用，这里只负责与正文的间距。
+ * 用 padding 而不是 margin：块级装饰带纵向 margin 会让 CM6 的高度测量失准。 */
+.cm-lp-table {
+  padding: 4px 0;
+}
+
+.editor-pane__placeholder {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  color: var(--fg-subtle);
+  font-size: 13px;
+  line-height: 2;
+}
+
+.editor-pane__placeholder kbd {
+  display: inline-block;
+  padding: 1px 6px;
+  border: 1px solid var(--border);
+  border-bottom-width: 2px;
+  border-radius: 4px;
+  font-family: inherit;
+  font-size: 12px;
+  color: var(--fg-muted);
+  background: var(--bg-secondary);
+}
+
+/* --------------------------------- 状态栏 --------------------------------- */
+
+.status-bar {
+  height: 24px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 0 12px;
+  background: var(--bg-secondary);
+  border-top: 1px solid var(--border);
+  font-size: 12px;
+  color: var(--fg-muted);
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.status-bar__spacer {
+  flex: 1;
+}
+
+.status-bar__item {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.status-bar__item--button {
+  padding: 0 6px;
+  height: 100%;
+  border-radius: 3px;
+}
+.status-bar__item--button:hover {
+  background: var(--bg-hover);
+  color: var(--fg);
+}
+
+/* --------------------------------- 轻提示 --------------------------------- */
+
+.notice-stack {
+  position: fixed;
+  right: 16px;
+  bottom: 36px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  z-index: 1000;
+  pointer-events: none;
+}
+
+.notice {
+  padding: 8px 14px;
+  border-radius: 6px;
+  background: var(--bg-tertiary);
+  color: var(--fg);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow);
+  font-size: 12px;
+  max-width: 380px;
+  pointer-events: auto;
+  animation: notice-in 0.16s ease-out;
+}
+.notice--success {
+  border-left: 3px solid var(--success);
+}
+.notice--error {
+  border-left: 3px solid var(--danger);
+}
+.notice--info {
+  border-left: 3px solid var(--accent);
+}
+
+@keyframes notice-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}

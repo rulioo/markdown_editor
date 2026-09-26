@@ -1,0 +1,10 @@
+node_modules/
+out/
+dist/
+release/
+*.log
+.DS_Store
+.vite/
+
+# 由 scripts/make-icon.cjs 生成，跑 npm run icon 即可复现
+build/

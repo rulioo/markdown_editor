@@ -1,0 +1,47 @@
+appId: com.marktextclone.app
+productName: MarkText 克隆版
+# 与 package.json 的 author 一起决定 exe 文件属性里的 LegalCopyright / CompanyName。
+# 二者必须与 src/shared/app-meta.ts 的 COPYRIGHT 保持一致（test/app-meta.test.ts 会核对）。
+copyright: 版权所有 © 2026 中色丝路资源科技（北京）有限公司
+
+directories:
+  buildResources: build
+  output: release
+
+files:
+  - out/**/*
+  - resources/**/*
+  - package.json
+
+# 主进程为 CJS，unified/remark/rehype 已打包进产物；内置模块无需额外解包
+asar: true
+
+win:
+  target:
+    - target: nsis
+      arch: [x64]
+    - target: portable
+      arch: [x64]
+  # 指向 PNG 即可：electron-builder 会自己转成 Windows 需要的 .ico。
+  # 图标由 scripts/make-icon.cjs 生成（可复现，不用往仓库里塞二进制）
+  icon: build/icon.png
+  # 关联 .md 文件，支持「用本应用打开」
+  fileAssociations:
+    - ext: md
+      name: Markdown 文档
+      description: Markdown 文档
+    - ext: markdown
+      name: Markdown 文档
+      description: Markdown 文档
+
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: MarkText 克隆版
+  installerLanguages:
+    - zh_CN
+  language: '2052'
+  deleteAppDataOnUninstall: false

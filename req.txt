@@ -1,0 +1,2 @@
+marktext 是一个free的markdown 编辑工具，请仿写一个，菜单选项都用中文。
+可以实现markdown文件的查看和编辑，也可以导出为html、pdf和docx格式文件
