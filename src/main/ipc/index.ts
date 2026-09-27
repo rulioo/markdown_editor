@@ -37,7 +37,8 @@ import { watchFile, unwatchFile } from '../watcher'
 import { forceCloseWindow, openExternal, setWindowDirty } from '../window'
 import { refreshAppMenuSoon } from '../menu'
 import { loadRecovery, saveRecovery, clearRecovery } from '../recovery'
-import { exportRun, pickExportTarget } from '../export'
+import { exportRun, pickExportTarget, printDocument } from '../export'
+import { sanitizeExportRequest, sanitizePrintRequest } from '../export/validate'
 import { takePendingPaths } from '../pending-paths'
 
 /** 取当前发起请求的窗口 */
@@ -181,8 +182,16 @@ export function registerIpcHandlers(): void {
     return pickExportTarget(senderWindow(event), request?.format ?? 'html', request?.defaultPath)
   })
 
+  // 这两个 handler 一度是整个文件里仅有的、不校验入参的例外。参数会一路走到
+  // Chromium 的打印 API，那里对 NaN / 缺字段的反应是「产出垃圾」而不是报错。
+  // 校验模块抛中文异常，`exportRun` 则返回 {ok:false,error}——两种错误通道都要留着：
+  // 前者是「调用方写错了」（不该发生），后者是「导出这件事失败了」（会发生）。
   ipcMain.handle(IPC.EXPORT_RUN, async (_event, request) => {
-    return exportRun(request)
+    return exportRun(sanitizeExportRequest(request))
+  })
+
+  ipcMain.handle(IPC.EXPORT_PRINT, async (_event, request) => {
+    return printDocument(sanitizePrintRequest(request))
   })
 
   /* --------------------------------- 设置 --------------------------------- */
@@ -190,7 +199,15 @@ export function registerIpcHandlers(): void {
   ipcMain.handle(IPC.SETTINGS_GET, async (): Promise<Settings> => getSettings())
 
   ipcMain.handle(IPC.SETTINGS_SET, async (_event, patch: Partial<Settings>) => {
+    const previousTheme = getSettings().theme
     const next = await setSettings(patch ?? {})
+    // 「主题」子菜单是 radio 单选态，而 Electron 的菜单是静态的：
+    // 不打勾就看不出当前在哪一档，所以改了主题必须重建菜单。
+    //
+    // 两个收敛：只在真的变了时重建（SETTINGS_SET 也被导出选项这类路径调用），
+    // 且走 refreshAppMenuSoon 而不是直接重建——状态栏那个按钮是「点一下换一档」，
+    // 连点三下会连改三次主题，重建菜单是会关掉已展开菜单的重操作。
+    if (next.theme !== previousTheme) refreshAppMenuSoon()
     return next
   })
 

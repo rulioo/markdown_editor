@@ -11,10 +11,13 @@
 
 import type { MenuItemConstructorOptions } from 'electron'
 import { COMMANDS } from '@shared/commands'
+import type { ThemeMode } from '@shared/types'
 
 export interface MenuContext {
   /** 把命令派发给渲染进程 */
   send: (commandId: string) => void
+  /** 当前主题模式，用于给「主题」子菜单的三项打勾 */
+  theme: ThemeMode
   /** 最近打开的文件（绝对路径），用于「打开最近文件」子菜单 */
   recentFiles: string[]
   /** 用户点了某个最近文件 */
@@ -37,7 +40,7 @@ export interface MenuContext {
  * - `Ctrl+0`：菜单层保留「正文」（段落），「重置缩放」改用 Ctrl+Shift+0。
  */
 export function buildMenuTemplate(ctx: MenuContext): MenuItemConstructorOptions[] {
-  const { send, recentFiles, onOpenRecent, onClearRecent, isDev, appName } = ctx
+  const { send, theme, recentFiles, onOpenRecent, onClearRecent, isDev, appName } = ctx
   const isMac = process.platform === 'darwin'
 
   const cmd = (
@@ -235,11 +238,20 @@ export function buildMenuTemplate(ctx: MenuContext): MenuItemConstructorOptions[
       // 注意：Ctrl+0 已被「正文」占用，此处改用 Ctrl+Shift+0（见文件头注释）
       cmd('重置缩放', COMMANDS.VIEW_ZOOM_RESET, 'CmdOrCtrl+Shift+0'),
       {
+        // 三项做成 radio 单选：菜单是静态的，不打勾就看不出当前是哪一档
         label: '主题',
         submenu: [
-          cmd('浅色', COMMANDS.VIEW_THEME_LIGHT),
-          cmd('深色', COMMANDS.VIEW_THEME_DARK),
-          cmd('跟随系统', COMMANDS.VIEW_THEME_SYSTEM)
+          { ...cmd('浅色', COMMANDS.VIEW_THEME_LIGHT), type: 'radio', checked: theme === 'light' },
+          { ...cmd('深色', COMMANDS.VIEW_THEME_DARK), type: 'radio', checked: theme === 'dark' },
+          {
+            ...cmd('跟随系统', COMMANDS.VIEW_THEME_SYSTEM),
+            type: 'radio',
+            checked: theme === 'system'
+          },
+          { type: 'separator' },
+          // Ctrl+Shift+D：与上面三项同族但语义不同——那三个是「选哪一档」，
+          // 这个是「切到相反的一档」（处于跟随时按此刻所见取反）
+          cmd('切换浅色/深色', COMMANDS.VIEW_TOGGLE_THEME, 'CmdOrCtrl+Shift+D')
         ]
       },
       cmd('全屏', COMMANDS.VIEW_FULLSCREEN, isMac ? 'Ctrl+Cmd+F' : 'F11'),

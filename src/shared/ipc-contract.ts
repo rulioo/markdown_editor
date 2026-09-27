@@ -43,6 +43,8 @@ export const IPC = {
 
   EXPORT_PICK_TARGET: 'export:pickTarget',
   EXPORT_RUN: 'export:run',
+  /** 调起系统打印对话框（Ctrl+P）。不落盘，所以没有 targetPath */
+  EXPORT_PRINT: 'export:print',
 
   SETTINGS_GET: 'settings:get',
   SETTINGS_SET: 'settings:set',
@@ -150,6 +152,12 @@ export interface InvokeMap {
 
   [IPC.EXPORT_PICK_TARGET]: { req: { format: ExportFormat; defaultPath?: string }; res: SaveAsResult }
   [IPC.EXPORT_RUN]: { req: ExportRequest; res: ExportResult }
+  /**
+   * 打印请求与导出请求同形，只少一个 `targetPath`（打印不落盘）。
+   * 这里用 `Omit` 而不是新写一个 interface：两者必须保持同步，
+   * 少写一个字段就会变成「导出加了选项、打印没加」的静默漂移。
+   */
+  [IPC.EXPORT_PRINT]: { req: Omit<ExportRequest, 'targetPath' | 'format'>; res: ExportResult }
 
   [IPC.SETTINGS_GET]: { req: void; res: Settings }
   [IPC.SETTINGS_SET]: { req: Partial<Settings>; res: Settings }

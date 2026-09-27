@@ -4,11 +4,14 @@ import { EOL_LABELS, ENCODING_LABELS } from '@shared/ipc-contract'
 import type { TextEncoding } from '@shared/types'
 import { useDeferredValue } from '../composables/useDeferredValue'
 import { countWords } from '../lib/documentViews'
+import { nextTheme, themeLabel } from '../lib/themeSwitch'
 import { useFilesStore } from '../stores/files'
 import { useLayoutStore } from '../stores/layout'
+import { useSettingsStore } from '../stores/settings'
 
 const files = useFilesStore()
 const layout = useLayoutStore()
+const settings = useSettingsStore()
 
 const session = computed(() => files.activeSession)
 
@@ -48,6 +51,19 @@ function cycleMode(): void {
   const index = order.indexOf(layout.mode as (typeof order)[number])
   void layout.setMode(order[(index + 1) % order.length])
 }
+
+/**
+ * 主题按钮。与上面几个按钮同一套交互：点一下换下一个。
+ *
+ * 和它们不同的是，这一项**没有文档时也要在**——主题是界面属性，
+ * 不该因为一个文件都没打开就没法改。所以它和占位符的 spacer 一起
+ * 留在 `v-if="session"` 块外面。
+ */
+const themeText = computed(() => themeLabel(settings.settings.theme, settings.resolvedTheme))
+
+function cycleTheme(): void {
+  void settings.setTheme(nextTheme(settings.settings.theme))
+}
 </script>
 
 <template>
@@ -58,8 +74,6 @@ function cycleMode(): void {
       </span>
       <span class="status-bar__item">{{ words }} 字</span>
       <span class="status-bar__item">{{ chars }} 字符</span>
-
-      <span class="status-bar__spacer" />
 
       <button
         class="status-bar__item status-bar__item--button"
@@ -88,5 +102,15 @@ function cycleMode(): void {
     <template v-else>
       <span class="status-bar__item">就绪</span>
     </template>
+
+    <!-- 主题与 spacer 在 v-if 之外：没有打开的文档时也要能切主题 -->
+    <span class="status-bar__spacer" />
+    <button
+      class="status-bar__item status-bar__item--button"
+      title="点击切换主题（浅色 → 深色 → 跟随系统），Ctrl+Shift+D 直接切换日夜"
+      @click="cycleTheme"
+    >
+      {{ themeText }}
+    </button>
   </footer>
 </template>

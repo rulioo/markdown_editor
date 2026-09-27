@@ -52,7 +52,8 @@ const api: RendererApi = {
   export: {
     pickTarget: (format, defaultPath) =>
       invoke(IPC.EXPORT_PICK_TARGET, { format, defaultPath }),
-    run: (request) => invoke(IPC.EXPORT_RUN, request)
+    run: (request) => invoke(IPC.EXPORT_RUN, request),
+    print: (request) => invoke(IPC.EXPORT_PRINT, request)
   },
   settings: {
     get: () => invoke(IPC.SETTINGS_GET),

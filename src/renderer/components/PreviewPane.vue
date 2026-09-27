@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onUnmounted, ref, watch } from 'vue'
 import { useFilesStore } from '../stores/files'
-import { renderMarkdown } from '../preview/render'
+import { renderMarkdown } from '@shared/markdown/render'
 
 /**
  * 预览面板（分栏 / 纯预览两种模式共用）。

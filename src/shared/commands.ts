@@ -96,6 +96,7 @@ export const COMMANDS = {
   VIEW_THEME_LIGHT: 'view.theme.light',
   VIEW_THEME_DARK: 'view.theme.dark',
   VIEW_THEME_SYSTEM: 'view.theme.system',
+  VIEW_TOGGLE_THEME: 'view.toggleTheme',
   VIEW_FULLSCREEN: 'view.fullscreen',
   VIEW_DEV_TOOLS: 'view.devTools',
 
@@ -150,6 +151,7 @@ export const GLOBAL_COMMANDS: ReadonlySet<string> = new Set<string>([
   COMMANDS.VIEW_THEME_LIGHT,
   COMMANDS.VIEW_THEME_DARK,
   COMMANDS.VIEW_THEME_SYSTEM,
+  COMMANDS.VIEW_TOGGLE_THEME,
   COMMANDS.VIEW_FULLSCREEN,
   COMMANDS.VIEW_DEV_TOOLS,
   COMMANDS.WIN_MINIMIZE,

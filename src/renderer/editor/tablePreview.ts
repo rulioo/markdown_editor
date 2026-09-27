@@ -24,7 +24,7 @@
 import { syntaxTree } from '@codemirror/language'
 import { StateField, type EditorState, type Range } from '@codemirror/state'
 import { Decoration, type DecorationSet, EditorView, WidgetType } from '@codemirror/view'
-import { renderMarkdown } from '../preview/render'
+import { renderMarkdown } from '@shared/markdown/render'
 import { activeLineSpans, isLineActive } from './livePreview'
 
 /**

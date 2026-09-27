@@ -21,13 +21,16 @@
   --cm-list: #1f2328;
   --cm-marker: #8c959f;
 
-  --cm-keyword: #cf222e;
-  --cm-string: #0a3069;
-  --cm-number: #0550ae;
-  --cm-comment: #6e7781;
-  --cm-type: #953800;
-  --cm-function: #8250df;
-  --cm-operator: #0550ae;
+  /* 这 7 个语法色只是 --hljs-* 的别名（定义在 src/shared/theme.ts）。
+   * 别名而不是复制字面量：编辑器、预览、导出三处因此**结构上**共用一套配色，
+   * 改一处不可能忘掉另一处。var() 在使用时才求值，与注入顺序无关。 */
+  --cm-keyword: var(--hljs-keyword);
+  --cm-string: var(--hljs-string);
+  --cm-number: var(--hljs-number);
+  --cm-comment: var(--hljs-comment);
+  --cm-type: var(--hljs-type);
+  --cm-function: var(--hljs-function);
+  --cm-operator: var(--hljs-operator);
 
   --cm-search-match: rgba(255, 196, 0, 0.4);
   --cm-search-match-border: rgba(191, 145, 0, 0.6);
@@ -46,13 +49,14 @@
   --cm-list: #d4d4d4;
   --cm-marker: #6e7681;
 
-  --cm-keyword: #ff7b72;
-  --cm-string: #a5d6ff;
-  --cm-number: #79c0ff;
-  --cm-comment: #8b949e;
-  --cm-type: #ffa657;
-  --cm-function: #d2a8ff;
-  --cm-operator: #79c0ff;
+  /* 同亮色主题：与 --hljs-* 同源 */
+  --cm-keyword: var(--hljs-keyword);
+  --cm-string: var(--hljs-string);
+  --cm-number: var(--hljs-number);
+  --cm-comment: var(--hljs-comment);
+  --cm-type: var(--hljs-type);
+  --cm-function: var(--hljs-function);
+  --cm-operator: var(--hljs-operator);
 
   --cm-search-match: rgba(210, 153, 34, 0.45);
   --cm-search-match-border: rgba(210, 153, 34, 0.8);
@@ -647,4 +651,163 @@ select:focus {
     opacity: 1;
     transform: translateY(0);
   }
+}
+
+/* ------------------------------- 模态对话框 ------------------------------- */
+/* z-index 高于 .notice-stack 的 1000：导出失败的错误提示要浮在对话框之上，
+   否则对话框开着的时候用户看不到「为什么没导出来」。 */
+
+.modal-mask {
+  position: fixed;
+  inset: 0;
+  z-index: 1100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.35);
+}
+
+.modal {
+  width: 420px;
+  max-width: calc(100vw - 48px);
+  max-height: calc(100vh - 96px);
+  display: flex;
+  flex-direction: column;
+  background: var(--bg);
+  color: var(--fg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: var(--shadow);
+  outline: none;
+}
+
+.modal__header {
+  padding: 14px 18px;
+  font-size: 14px;
+  font-weight: 600;
+  border-bottom: 1px solid var(--border);
+}
+
+.modal__body {
+  padding: 16px 18px;
+  overflow-y: auto;
+}
+
+.modal__section + .modal__section {
+  margin-top: 18px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border);
+}
+
+.modal__section-title {
+  margin: 0 0 10px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--fg-muted);
+}
+
+.field {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+  font-size: 13px;
+}
+
+.field--check {
+  justify-content: flex-start;
+}
+
+.field--check input {
+  margin: 0;
+}
+
+.field--stack {
+  display: block;
+}
+
+.field__label {
+  color: var(--fg);
+}
+
+.field__control {
+  min-width: 120px;
+  padding: 4px 6px;
+  font: inherit;
+  font-size: 13px;
+  color: var(--fg);
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+}
+
+.margin-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px 12px;
+  margin-top: 6px;
+}
+
+.margin-grid__cell {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--fg-muted);
+}
+
+.margin-grid__cell input {
+  width: 100%;
+  padding: 4px 6px;
+  font: inherit;
+  font-size: 13px;
+  color: var(--fg);
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+}
+
+.modal__hints {
+  margin: 16px 0 0;
+  padding: 10px 12px 10px 26px;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--fg-muted);
+  background: var(--bg-secondary);
+  border-radius: 6px;
+}
+
+.modal__footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 12px 18px;
+  border-top: 1px solid var(--border);
+}
+
+.btn {
+  padding: 5px 14px;
+  font: inherit;
+  font-size: 13px;
+  color: var(--fg);
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.btn:hover {
+  background: var(--bg-hover);
+}
+
+.btn--primary {
+  color: #fff;
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+.btn--primary:hover {
+  background: var(--accent);
+  opacity: 0.9;
 }

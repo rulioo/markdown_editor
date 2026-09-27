@@ -27,6 +27,7 @@ export function sendOpenPaths(paths: string[]): void {
 export function applyAppMenu(): void {
   const template = buildMenuTemplate({
     send: sendCommand,
+    theme: getSettings().theme,
     recentFiles: getSettings().recentFiles,
     onOpenRecent: (filePath) => {
       void addRecentFile(filePath).then(() => applyAppMenu())

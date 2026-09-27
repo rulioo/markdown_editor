@@ -33,6 +33,17 @@ export const THEME_VARIABLES_CSS = `
   --quote-border: #d1d9e0;
   --mark-bg: #fff8c5;
 
+  /* 代码高亮配色。这是**单一来源**：编辑器（CodeMirror）那 7 个 --cm-* 语义色
+   * 在 styles/index.css 里写成 var(--hljs-*)，预览与导出直接用这里的变量。
+   * 于是「编辑器里的关键字」和「预览里的关键字」结构上不可能漂移。 */
+  --hljs-comment: #6e7781;
+  --hljs-keyword: #cf222e;
+  --hljs-string: #0a3069;
+  --hljs-number: #0550ae;
+  --hljs-type: #953800;
+  --hljs-function: #8250df;
+  --hljs-operator: #0550ae;
+
   --selection: #b6d7ff;
   --danger: #cf222e;
   --success: #1a7f37;
@@ -68,6 +79,15 @@ export const THEME_VARIABLES_CSS = `
   --code-fg: #d4d4d4;
   --quote-border: #4a4a4f;
   --mark-bg: #5a4a1f;
+
+  /* 同亮色主题：与编辑器 --cm-* 同源，见上面的说明 */
+  --hljs-comment: #8b949e;
+  --hljs-keyword: #ff7b72;
+  --hljs-string: #a5d6ff;
+  --hljs-number: #79c0ff;
+  --hljs-type: #ffa657;
+  --hljs-function: #d2a8ff;
+  --hljs-operator: #79c0ff;
 
   --selection: #264f78;
   --danger: #f85149;
@@ -191,6 +211,30 @@ export const MARKDOWN_BODY_CSS = `
 .markdown-body tr:nth-child(2n),
 .cm-lp-table tr:nth-child(2n) { background: var(--bg-secondary); }
 
+/* 目录（导出时 includeToc 打开才注入，见 shared/markdown/headings.ts）。
+ * 预览面板不会有它，但样式放这里不影响——导出 HTML 与预览共用这一份。 */
+.markdown-body .markdown-toc {
+  margin: 0 0 1.5em;
+  padding: 0.8em 1.2em;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 0.95em;
+}
+.markdown-body .markdown-toc ul { margin: 0; padding-left: 1.4em; }
+.markdown-body .markdown-toc > ul { padding-left: 0; }
+.markdown-body .markdown-toc li { margin: 0.2em 0; }
+.markdown-body .markdown-toc a { color: var(--fg); }
+.markdown-body .markdown-toc a:hover { color: var(--accent); }
+
+/* 标题被锚点定位时留一点上边距，否则会贴着页顶/面板顶 */
+.markdown-body h1,
+.markdown-body h2,
+.markdown-body h3,
+.markdown-body h4,
+.markdown-body h5,
+.markdown-body h6 { scroll-margin-top: 1em; }
+
 .markdown-body hr {
   height: 1px;
   border: 0;
@@ -209,4 +253,70 @@ export const MARKDOWN_BODY_CSS = `
 }
 
 .markdown-body .katex-display { overflow-x: auto; overflow-y: hidden; padding: 0.5em 0; }
+`
+
+/**
+ * 代码高亮配色（highlight.js 的类名 → 本项目的主题变量）。
+ *
+ * 为什么自研而不是 import 'highlight.js/styles/github.css'：那些主题写死了字面颜色
+ * 和 `.hljs { background; padding }`，前者会让预览/导出与编辑器三处配色各说各话，
+ * 后者会跟 `.markdown-body pre` 的底色叠成双层。这里只做「类名 → 变量」的映射。
+ *
+ * 两条承重规则，改动时别破坏：
+ * 1. **一条 `background` 都不能有。** `.markdown-body .hljs` 的特异度是 (0,2,0)，
+ *    会压过 `.markdown-body pre code { background: none }` 的 (0,1,2)，代码块会变双层底色。
+ *    同理不写 padding / font-size —— 那些归 `pre code` 管。
+ * 2. **每条选择器都带 `.markdown-body` 前缀。** 渲染进程会把这份 CSS 注入全局
+ *    `<style>`，不带前缀就会泄漏到编辑器等其它地方（那里有自己的一套配色）。
+ *    `test/theme-wiring.test.ts` 里两条断言盯着这两件事。
+ *
+ * 另一处易错：lowlight 会把点号作用域展开成**下划线后缀**（`hljs-title function_`），
+ * 而不是 `hljs-function`。写 `.hljs-function` 会静默匹配不到任何元素。
+ */
+export const HIGHLIGHT_CSS = `
+.markdown-body .hljs { color: var(--code-fg); }
+
+.markdown-body .hljs-comment,
+.markdown-body .hljs-quote { color: var(--hljs-comment); font-style: italic; }
+
+.markdown-body .hljs-keyword,
+.markdown-body .hljs-literal,
+.markdown-body .hljs-doctag,
+.markdown-body .hljs-name,
+.markdown-body .hljs-selector-tag { color: var(--hljs-keyword); }
+
+/* lowlight 展开后的名字是 hljs-title function_，不是 hljs-function */
+.markdown-body .hljs-title,
+.markdown-body .hljs-title.function_,
+.markdown-body .hljs-section { color: var(--hljs-function); }
+
+.markdown-body .hljs-title.class_,
+.markdown-body .hljs-type,
+.markdown-body .hljs-built_in,
+.markdown-body .hljs-class { color: var(--hljs-type); }
+
+.markdown-body .hljs-string,
+.markdown-body .hljs-regexp,
+.markdown-body .hljs-addition,
+.markdown-body .hljs-template-variable { color: var(--hljs-string); }
+
+.markdown-body .hljs-number,
+.markdown-body .hljs-symbol,
+.markdown-body .hljs-bullet,
+.markdown-body .hljs-link { color: var(--hljs-number); }
+
+.markdown-body .hljs-attr,
+.markdown-body .hljs-attribute,
+.markdown-body .hljs-variable,
+.markdown-body .hljs-property,
+.markdown-body .hljs-template-tag { color: var(--fg-subtle); }
+
+.markdown-body .hljs-meta,
+.markdown-body .hljs-tag,
+.markdown-body .hljs-punctuation { color: var(--fg-subtle); }
+
+.markdown-body .hljs-operator { color: var(--hljs-operator); }
+.markdown-body .hljs-deletion { color: var(--danger); }
+.markdown-body .hljs-emphasis { font-style: italic; }
+.markdown-body .hljs-strong { font-weight: 600; }
 `

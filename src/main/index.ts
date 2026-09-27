@@ -5,6 +5,7 @@ import { flushSettings, loadSettings } from './store'
 import { registerIpcHandlers } from './ipc'
 import { extractDocumentPaths } from './cli'
 import { queuePaths, resetPathDelivery, setPathSink } from './pending-paths'
+import { cleanupExportTemp } from './export/render-window'
 
 // Windows 任务栏分组与通知需要显式设置 AppUserModelID
 app.setAppUserModelId('com.marktextclone.app')
@@ -41,6 +42,9 @@ if (!gotTheLock) {
     // 配置必须在建窗口之前加载：窗口尺寸/主题都来自配置
     await loadSettings()
 
+    // 扫掉上次崩溃留下的导出临时文件。能安全整目录删的前提是单实例锁（见上方）
+    await cleanupExportTemp()
+
     // 建窗口之前入队，保证「窗口刚出现就拿到文件」而不是「先空一下再补上」。
     // 此刻一定还没就绪，所以只会入缓冲——正合期望。
     queuePaths(extractDocumentPaths(process.argv))
@@ -65,5 +69,7 @@ if (!gotTheLock) {
   app.on('before-quit', () => {
     // 配置写入有 300ms 防抖，退出前必须强制落盘
     void flushSettings()
+    // 正常退出不留临时文件（崩溃残留由下次启动时的 cleanupExportTemp 兜底）
+    void cleanupExportTemp()
   })
 }

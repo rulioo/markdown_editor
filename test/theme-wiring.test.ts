@@ -1,7 +1,7 @@
 import { readFileSync, readdirSync, statSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { MARKDOWN_BODY_CSS, THEME_VARIABLES_CSS } from '@shared/theme'
+import { HIGHLIGHT_CSS, MARKDOWN_BODY_CSS, THEME_VARIABLES_CSS } from '@shared/theme'
 
 /**
  * shared/theme.ts 里的 CSS 常量是**跨进程共享的字符串**，
@@ -50,11 +50,26 @@ function consumersOf(name: string): string[] {
     .map((f) => f.slice(ROOT.length + 1).split('\\').join('/'))
 }
 
+/** 去掉 CSS 注释再做文本断言：注释里出现 `background` 是在解释规则本身，不是规则 */
+function stripCssComments(css: string): string {
+  return css.replace(/\/\*[\s\S]*?\*\//g, '')
+}
+
+/** 拆出所有「带 .hljs 的选择器」，每条都已去掉首尾空白 */
+function hljsSelectors(css: string): string[] {
+  return stripCssComments(css)
+    .split('\n')
+    .flatMap((line) => line.split(','))
+    .map((part) => part.trim())
+    .filter((part) => part.includes('.hljs'))
+}
+
 describe('主题 CSS 常量的接线', () => {
-  it('theme.ts 里至少导出了两个 CSS 常量（防止正则失效后测试变成空转）', () => {
+  it('theme.ts 里至少导出了三个 CSS 常量（防止正则失效后测试变成空转）', () => {
     const names = exportedCssNames()
     expect(names).toContain('THEME_VARIABLES_CSS')
     expect(names).toContain('MARKDOWN_BODY_CSS')
+    expect(names).toContain('HIGHLIGHT_CSS')
   })
 
   it('每个导出的 CSS 常量都至少有一个消费方', () => {
@@ -83,16 +98,58 @@ describe('主题 CSS 常量的接线', () => {
   it('正文样式引用的主题变量真的有定义（两套主题都要有）', () => {
     // 单看一份看不出问题：MARKDOWN_BODY_CSS 写了 var(--accent)，而 --accent
     // 定义在 THEME_VARIABLES_CSS 里。谁少了一份，样式就会静默回落到继承值。
-    const used = [...MARKDOWN_BODY_CSS.matchAll(/var\((--[a-z-]+)/g)].map((m) => m[1])
-    // 带兜底值的写法（var(--md-font-size, 16px)）在别处按需覆盖，这里只管纯变量
-    const required = [...new Set(used)].filter((name) =>
-      new RegExp(`var\\(${name}\\)`).test(MARKDOWN_BODY_CSS)
-    )
-    expect(required.length).toBeGreaterThan(0)
+    // 高亮配色同理，所以两份一起查。
+    for (const css of [MARKDOWN_BODY_CSS, HIGHLIGHT_CSS]) {
+      const used = [...css.matchAll(/var\((--[a-z0-9-]+)/g)].map((m) => m[1])
+      // 带兜底值的写法（var(--md-font-size, 16px)）在别处按需覆盖，这里只管纯变量
+      const required = [...new Set(used)].filter((name) =>
+        new RegExp(`var\\(${name}\\)`).test(css)
+      )
+      expect(required.length).toBeGreaterThan(0)
 
-    for (const name of required) {
-      // 亮色挂在 :root，暗色挂在 [data-theme='dark']，两处都要声明
-      expect(THEME_VARIABLES_CSS).toContain(`${name}:`)
+      for (const name of required) {
+        // 亮色挂在 :root，暗色挂在 [data-theme='dark']，两处都要声明
+        expect(THEME_VARIABLES_CSS).toContain(`${name}:`)
+      }
     }
+  })
+})
+
+describe('代码高亮配色的两条承重规则', () => {
+  it('HIGHLIGHT_CSS 里没有任何 background（否则代码块会变成双层底色）', () => {
+    // `.markdown-body .hljs` 的特异度是 (0,2,0)，压过
+    // `.markdown-body pre code { background: none }` 的 (0,1,2)。
+    // 只要这里写了底色，`pre` 的底色就会透不出来（或反过来叠一层）。
+    expect(stripCssComments(HIGHLIGHT_CSS)).not.toContain('background')
+  })
+
+  it('HIGHLIGHT_CSS 不碰 padding / font-size（那些归 pre code 管）', () => {
+    const css = stripCssComments(HIGHLIGHT_CSS)
+    expect(css).not.toContain('padding')
+    expect(css).not.toContain('font-size')
+  })
+
+  it('每条 .hljs 选择器都带 .markdown-body 前缀（否则会泄漏到编辑器）', () => {
+    // 这份 CSS 会被注入渲染进程的全局 <style>，编辑器那边有自己的一套配色，
+    // 不带前缀的 `.hljs-keyword` 会把别处也一起染色。
+    const selectors = hljsSelectors(HIGHLIGHT_CSS)
+    expect(selectors.length).toBeGreaterThan(10)
+    expect(selectors.filter((s) => !s.startsWith('.markdown-body'))).toEqual([])
+  })
+
+  it('用 lowlight 展开后的类名（hljs-title function_，不是 hljs-function）', () => {
+    // lowlight 把点号作用域拆成「父类名 + 下划线后缀」，写 .hljs-function
+    // 会静默匹配不到任何元素——最难发现的一类错误，所以钉一条断言。
+    expect(HIGHLIGHT_CSS).toContain('.hljs-title.function_')
+    expect(HIGHLIGHT_CSS).toContain('.hljs-title.class_')
+    expect(HIGHLIGHT_CSS).not.toContain('.hljs-function')
+  })
+
+  it('HIGHLIGHT_CSS 的消费方覆盖渲染进程入口与导出外壳', () => {
+    const consumers = consumersOf('HIGHLIGHT_CSS')
+    // 预览面板的语法色
+    expect(consumers).toContain('src/renderer/main.ts')
+    // 导出的 HTML 必须自带这份配色，否则双击打开的 HTML 没有语法色
+    expect(consumers).toContain('src/main/export/shell.ts')
   })
 })

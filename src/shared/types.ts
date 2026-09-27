@@ -142,6 +142,8 @@ export interface ExportRequest {
   /** 源文档路径，用于解析相对路径的图片；未保存文档为 null */
   docPath: string | null
   options: ExportOptions
+  /** 文档标题（不含扩展名），写进 HTML 的 <title> 与 PDF 的文档属性 */
+  title?: string
 }
 
 export interface ExportResult {
@@ -149,6 +151,8 @@ export interface ExportResult {
   path?: string
   /** 失败时的中文错误信息，可直接展示给用户 */
   error?: string
+  /** 用户主动取消（如关掉打印对话框）。不是错误，调用方不该弹错误框 */
+  canceled?: boolean
 }
 
 /* ---------------------------------- 对话框 --------------------------------- */

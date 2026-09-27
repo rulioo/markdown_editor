@@ -5,6 +5,7 @@ import Sidebar from './components/Sidebar.vue'
 import EditorPane from './components/EditorPane.vue'
 import StatusBar from './components/StatusBar.vue'
 import NoticeStack from './components/NoticeStack.vue'
+import ExportDialog from './components/ExportDialog.vue'
 import { setupAppWiring } from './app-wiring'
 import { useLayoutStore } from './stores/layout'
 
@@ -26,5 +27,6 @@ const layout = useLayoutStore()
     </div>
     <StatusBar v-if="layout.showStatusBar" />
     <NoticeStack />
+    <ExportDialog />
   </div>
 </template>

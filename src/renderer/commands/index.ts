@@ -9,19 +9,36 @@ import { findNext, findPrevious, openSearchPanel } from '@codemirror/search'
 import type { EditorView } from '@codemirror/view'
 import { COMMANDS } from '@shared/commands'
 import { APP_TITLE, COPYRIGHT } from '@shared/app-meta'
+import type { ExportFormat } from '@shared/types'
 import { registerCommands } from './registry'
 import { withEditor } from '../editor/active'
 import * as fmt from '../editor/format'
-import { dirName, useFilesStore } from '../stores/files'
+import { baseName, dirName, useFilesStore } from '../stores/files'
+import type { FileSession } from '../stores/files'
 import { useWorkspaceStore } from '../stores/workspace'
 import { useLayoutStore } from '../stores/layout'
 import { useSettingsStore } from '../stores/settings'
+import { useExportDialogStore } from '../stores/exportDialog'
+import { defaultExportPath, exportTitle } from '../lib/exportPath'
+import { toggledTheme } from '../lib/themeSwitch'
+
+/** 错误对话框的标题用得上，也是菜单里已有的说法 */
+const FORMAT_LABELS: Record<ExportFormat, string> = {
+  html: 'HTML',
+  pdf: 'PDF',
+  docx: 'DOCX'
+}
+
+function messageOf(error: unknown): string {
+  return error instanceof Error ? error.message : String(error)
+}
 
 export function setupCommands(): void {
   const files = useFilesStore()
   const workspace = useWorkspaceStore()
   const layout = useLayoutStore()
   const settings = useSettingsStore()
+  const exportDialog = useExportDialogStore()
 
   /** 尚未实现的命令：给一条可读的中文提示，而不是静默无反应 */
   const pending = (label: string) => () => {
@@ -36,6 +53,105 @@ export function setupCommands(): void {
     withEditor((host) => {
       const view = host.editorView
       if (view) fn(view)
+    })
+  }
+
+  /**
+   * 需要「当前文档」的命令统一走这里。
+   *
+   * **刻意不写成 `pending`/`onEditor` 那种柯里化形式**（返回 `() => Promise<void>`）。
+   * 两个调用点都是 `await withActiveDocument(fn)`：而 `await` 一个函数是合法的，
+   * 会立刻求值成那个函数本身——回调永远不执行，命令静默变成空操作，
+   * 既不报错也没有任何提示，`tsc` 同样拦不住（它只是「await 了一个非 Promise 值」）。
+   * 直接写成 async 函数，`await` 的才是真正要等的那次执行。
+   */
+  async function withActiveDocument(
+    fn: (session: FileSession) => Promise<void>
+  ): Promise<void> {
+    const session = files.activeSession
+    if (!session) {
+      layout.notify('没有打开的文档', 'error')
+      return
+    }
+    await fn(session)
+  }
+
+  /**
+   * 导出流程。HTML / PDF / DOCX 三条出口只有格式不同，所以共用一份。
+   *
+   * 顺序是**刻意**的：先问选项、再选路径、最后才写盘。
+   * - 用户取消对话框 → 既不写盘也不落配置（取消不该产生副作用）；
+   * - 配置在**用户确认之后**才保存，所以「打开看一眼又关掉」不会污染偏好设置。
+   *
+   * `settings.update({ export: options })` 传的是**完整对象**：`Partial<Settings>`
+   * 是浅偏特化，只传 `{theme:'dark'}` 会把整个 export 块替换成一个缺字段的对象。
+   * （主进程的 `sanitizeExportOptions` 会在运行期兜住这件事，但那是安全网不是设计。）
+   */
+  async function exportAs(format: ExportFormat): Promise<void> {
+    await withActiveDocument(async (session) => {
+      const options = await exportDialog.open(format, settings.settings.export)
+      if (!options) return
+      await settings.update({ export: options })
+
+      const target = await window.api.export.pickTarget(
+        format,
+        defaultExportPath(session.filePath, format, session.name)
+      )
+      if (target.canceled || !target.path) return
+
+      try {
+        const result = await window.api.export.run({
+          format,
+          markdown: session.content,
+          targetPath: target.path,
+          docPath: session.filePath,
+          options,
+          title: exportTitle(session.filePath, session.name, APP_TITLE)
+        })
+        if (result.ok) {
+          layout.notify(`已导出 ${baseName(result.path ?? target.path)}`, 'success')
+        } else {
+          await reportFailure(`${FORMAT_LABELS[format]} 导出失败`, result.error)
+        }
+      } catch (error) {
+        // IPC handler 对非法入参是**抛异常**的（返回 {ok:false} 的是「导出失败了」，
+        // 抛出来的是「调用方写错了」）。两条通道都要处理，否则会变成未捕获的 rejection。
+        await reportFailure(`${FORMAT_LABELS[format]} 导出失败`, messageOf(error))
+      }
+    })
+  }
+
+  /** Ctrl+P：与导出共用对话框，区别只是不落盘、由系统打印对话框接手 */
+  async function printActiveDocument(): Promise<void> {
+    await withActiveDocument(async (session) => {
+      const options = await exportDialog.open('pdf', settings.settings.export)
+      if (!options) return
+      await settings.update({ export: options })
+
+      try {
+        const result = await window.api.export.print({
+          markdown: session.content,
+          docPath: session.filePath,
+          options,
+          title: exportTitle(session.filePath, session.name, APP_TITLE)
+        })
+        if (result.ok) layout.notify('已发送到打印机', 'success')
+        // 用户取消打印不是错误：弹错误框会让「我只是点了取消」变成一次惊吓
+        else if (!result.canceled) await reportFailure('打印失败', result.error)
+      } catch (error) {
+        await reportFailure('打印失败', messageOf(error))
+      }
+    })
+  }
+
+  /** 失败一律走系统对话框而不是轻提示：错误信息可能很长，且需要用户看清 */
+  async function reportFailure(title: string, detail?: string): Promise<void> {
+    await window.api.dialog.message({
+      type: 'error',
+      title,
+      message: title,
+      detail: detail ?? '未知错误',
+      buttons: ['确定']
     })
   }
 
@@ -83,7 +199,7 @@ export function setupCommands(): void {
       await files.close()
     },
 
-    [COMMANDS.FILE_PRINT]: pending('打印'),
+    [COMMANDS.FILE_PRINT]: () => printActiveDocument(),
 
     [COMMANDS.APP_SETTINGS]: pending('偏好设置'),
 
@@ -93,9 +209,10 @@ export function setupCommands(): void {
 
     /* --------------------------------- 导出 --------------------------------- */
 
-    [COMMANDS.EXPORT_HTML]: pending('导出 HTML'),
-    [COMMANDS.EXPORT_PDF]: pending('导出 PDF'),
-    [COMMANDS.EXPORT_DOCX]: pending('导出 DOCX'),
+    [COMMANDS.EXPORT_HTML]: () => exportAs('html'),
+    [COMMANDS.EXPORT_PDF]: () => exportAs('pdf'),
+    // DOCX 的对话框、路径选择、错误处理全部已就位，M4 只需翻转主进程的分支
+    [COMMANDS.EXPORT_DOCX]: () => exportAs('docx'),
 
     /* --------------------------------- 视图 --------------------------------- */
 
@@ -121,6 +238,10 @@ export function setupCommands(): void {
     [COMMANDS.VIEW_THEME_LIGHT]: () => settings.setTheme('light'),
     [COMMANDS.VIEW_THEME_DARK]: () => settings.setTheme('dark'),
     [COMMANDS.VIEW_THEME_SYSTEM]: () => settings.setTheme('system'),
+    // 快捷键用的「一键日夜」：处于「跟随系统」时按此刻所见取反，
+    // 否则会出现「按一下没反应」
+    [COMMANDS.VIEW_TOGGLE_THEME]: () =>
+      settings.setTheme(toggledTheme(settings.settings.theme, settings.resolvedTheme)),
 
     [COMMANDS.VIEW_FULLSCREEN]: async () => {
       const state = await window.api.win.getState()

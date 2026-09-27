@@ -49,6 +49,8 @@ export interface RendererApi {
   export: {
     pickTarget(format: ExportFormat, defaultPath?: string): Promise<SaveAsResult>
     run(request: ExportRequest): Promise<ExportResult>
+    /** 调起系统打印对话框。用户取消时返回 `{ok:false, canceled:true}`，不是错误 */
+    print(request: Omit<ExportRequest, 'targetPath' | 'format'>): Promise<ExportResult>
   }
   settings: {
     get(): Promise<Settings>

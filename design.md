@@ -167,8 +167,22 @@ Chromium 的分页排版质量最高，且与预览共用 CSS。缺点是无法�
 - 文件路径一律走 `path.join` / `path.normalize`，不硬编码分隔符；配置目录走 `app.getPath('userData')`；
 - **M0–M6 仅在 Windows 上验证与打包**，macOS / Linux 产物与签名留待需要时再补。
 
-**ADR-05：预览渲染在 `sandbox` iframe 中。**
-`<iframe sandbox="" srcdoc="...">` 不执行脚本、不加载外部资源，天然阻断文档内 XSS（NFR-4），无需引入 rehype-sanitize 的规则维护成本。
+**ADR-05：预览渲染在 `sandbox` iframe 中。**（**决定已被推翻，见 D-21**）
+
+> 原决定：`<iframe sandbox="" srcdoc="...">` 不执行脚本、不加载外部资源，天然阻断文档内 XSS（NFR-4），无需引入 rehype-sanitize 的规则维护成本。
+>
+> **实际实现：不用 iframe。** `PreviewPane.vue` 把渲染结果直接挂进宿主文档的
+> `<article class="markdown-body">`，理由见 D-21（iframe 里的 CSS 变量不继承父文档，
+> 会破坏「编辑区 / 预览 / 导出三处共用同一组变量」这条性质，而 D-16 正是这条性质被破坏后的后果）。
+>
+> **安全依据随之改变，这比实现方式本身更重要**：预览的 XSS 防护现在**完全落在管线上**——
+> 原始 HTML 一律转义成文本（`<span class="raw-html">`）、URL 走协议白名单（D-8）。
+> 换言之 `renderMarkdown()` 的这两级处理**是唯一的那道防线**：任何绕过它的新 `innerHTML`
+> 出口都必须自己保证安全。导出的 HTML 同样依赖它们，而且那边**连主进程的 `will-navigate`
+> 兜底都没有**（导出物是要脱离应用在浏览器里打开的）。ADR 的这一条不该被当成现状引用。
+>
+> **本节之外还有三处旧描述未改**：§4.1 与 §4.2 两张结构图里的「预览区：sandbox iframe」、
+> §5.5 的「注入 `sandbox=""` 的 iframe `srcdoc`」。**以本注为准。**
 
 **ADR-06：渲染进程不直接读写文件，全部经 preload 白名单 IPC。**
 `contextIsolation: true` / `nodeIntegration: false` / `sandbox: true`。
@@ -262,7 +276,7 @@ markdown_editor/
         │   │   ├── Outline.vue     # 大纲（mdast 提取）
         │   │   └── Search.vue      # 全文搜索
         │   ├── EditorPane.vue      # CM6 宿主
-        │   ├── PreviewPane.vue     # sandbox iframe 宿主
+        │   ├── PreviewPane.vue     # 预览宿主（非 iframe，见 ADR-05 注）
         │   ├── StatusBar.vue       # 字数 / 光标 / 编码 / 换行 / 模式
         │   └── dialogs/            # 设置、关于、导出选项、语法参考
         ├── editor/
@@ -357,6 +371,7 @@ interface Api {
 ```
 
 - 侧边栏宽度可拖拽（`240–480px`），显隐与宽度持久化。
+- **载入文档后侧边栏停在「大纲」**（从外部打开时展开并切过去；在文件树里点文件不动页签）。见 D-30。
 - 分栏模式下 `Ctrl+滚轮` 缩放正文；预览区**双向滚动同步**（按标题锚点对齐，非简单比例映射）。
 
 ### 5.4 编辑器内核（CodeMirror 6）
@@ -401,13 +416,27 @@ interface Api {
 
 ### 5.5 预览与主题
 
-- **渲染管线**（`main/export/pipeline.ts`，主/渲染共用同一份代码）：
+- **渲染管线**（实际位于 `src/shared/markdown/`，主/渲染共用同一份代码；原设计写的是 `main/export/pipeline.ts`，见 D-20）：
   `remark-parse → remark-gfm → remark-math → remark-frontmatter → remark-rehype(+katex) → rehype-highlight → rehype-stringify`
-- 预览：产出的 HTML 片段注入 `sandbox=""` 的 iframe `srcdoc`，样式来自 `resources/markdown.css`（通过 `<style>` 内联进 srcdoc）。
+- 预览：产出的 HTML 片段注入 `sandbox=""` 的 iframe `srcdoc`，样式来自 `resources/markdown.css`（通过 `<style>` 内联进 srcdoc）。（**实际：直接挂进宿主文档，样式由 `theme.ts` 的常量注入，见 ADR-05 注与 D-21**）
 - **主题**：CSS 变量定义于 `resources/themes/{light,dark}.css`（`--bg`、`--fg`、`--accent`、`--code-bg`…），CM6 主题与预览、导出模板三处共用同一组变量，保证「编辑区 / 预览 / 导出」视觉一致。
 - 代码高亮样式与主题变量绑定，切换主题时同步替换 highlight.js 配色。
 
 ### 5.6 导出子系统
+
+> **本节是最初的设计稿，M3 落地时有若干格已被推翻**（保留原文以免丢失设计意图，
+> 逐条理由见 §14 的偏差表）：
+>
+> | 本节原文 | 实际实现 | 见 |
+> | --- | --- | --- |
+> | 管线在 `main/export/pipeline.ts`（§5.5） | `src/shared/markdown/`，主进程只管外壳与打印参数 | D-20 |
+> | PDF 追加 `@page { size; margin }` | **不写**，几何全部来自 `printToPDF` 参数 | D-22 |
+> | 等待 `document.fonts.ready` | **不等**，与 `javascript: false` 互斥 | D-23 |
+> | 对话框显示进度 +「打开所在文件夹」 | 都没有（后者属 M5） | D-24 |
+> | 相对路径图片的处理未规定 | 不写 `<base>`，绝对化成 `file:///` | D-25 |
+>
+> 仍然成立的部分：单文件 HTML 模板、临时文件 + 隐藏窗口 + `printToPDF` 的整体形状、
+> 全程 `try/finally` 不残留窗口与临时文件、以及下方 DOCX 一节的映射表（M4 实施）。
 
 统一入口：
 
@@ -422,9 +451,9 @@ exportRun({ format: 'html' | 'pdf' | 'docx', markdown: string, targetPath: strin
 4. `fs.writeFile(targetPath, html, 'utf8')`（NFR-6）。
 
 **PDF（`export/pdf.ts`）**
-1. 生成 HTML，追加打印样式：`@page { size: A4; margin: 20mm }`、`h1..h6 { break-after: avoid }`、`pre, table, img { break-inside: avoid }`；
+1. 生成 HTML，追加打印样式：`@page { size: A4; margin: 20mm }`（**实际刻意未写，见 D-22**）、`h1..h6 { break-after: avoid }`、`pre, table, img { break-inside: avoid }`；
 2. 写入临时文件 `temp/marktext-clone/<uuid>.html`；
-3. 新建离屏窗口 `new BrowserWindow({ show: false, webPreferences: { sandbox: true, javascript: false } })`，`loadFile(tmp)`，等待 `did-finish-load` + `document.fonts.ready`；
+3. 新建离屏窗口 `new BrowserWindow({ show: false, webPreferences: { sandbox: true, javascript: false } })`，`loadFile(tmp)`，等待 `did-finish-load` + `document.fonts.ready`（**实际只等前者，见 D-23**）；
 4. `webContents.printToPDF({ printBackground: true, pageSize: 'A4', margins: {...}, displayHeaderFooter, headerTemplate, footerTemplate })`，页脚模板填页码；
 5. 写 Buffer 到目标路径，关闭窗口，删除临时文件；
 6. 全程 `try/finally` 保证不残留窗口与临时文件。
@@ -464,7 +493,7 @@ await fs.writeFile(targetPath, buffer)
 | `footnote` | docx 原生脚注 |
 | `math` | **降级为纯文本**（M5 评估 KaTeX→PNG 嵌入） |
 
-**导出选项对话框**（`dialogs/ExportDialog.vue`）：格式、目标路径、主题、页码、目录、图片内联，导出中显示进度与结果提示（成功后可「打开所在文件夹」）。
+**导出选项对话框**（`dialogs/ExportDialog.vue`）：格式、目标路径、主题、页码、目录、图片内联，导出中显示进度与结果提示（成功后可「打开所在文件夹」）。（**实际：对话框在，进度与「打开所在文件夹」未做，见 D-24**）
 
 ---
 
@@ -671,7 +700,7 @@ CM6 paste 事件 → 检测 clipboard 图片 → api.fs.assetsDir({ docPath, fil
 | 项 | 方案 |
 | --- | --- |
 | 性能 | CM6 视口渲染；Live Preview 仅遍历可见区；预览渲染 300ms 防抖；>1MB 文档自动降级源码模式；导出在主进程，不阻塞 UI |
-| 安全 | `contextIsolation: true` + `sandbox: true` + `nodeIntegration: false`；预览用 `sandbox=""` iframe；CSP 限制 `default-src 'self'`；外链协议白名单；不使用 `remote` 模块 |
+| 安全 | `contextIsolation: true` + `sandbox: true` + `nodeIntegration: false`；**预览不用 iframe**，XSS 防护靠管线的 HTML 转义 + 协议白名单（见 ADR-05 注、D-8）；CSP 限制 `default-src 'self'`；外链协议白名单；不使用 `remote` 模块 |
 | 编码 | jschardet 探测 + iconv-lite 转换，保存时按原编码回写；BOM 保留 |
 | 换行符 | 读取时记录 LF/CRLF，保存时还原；状态栏可点击切换 |
 | 大文件 | `fs:readFile` 超过 20MB 时提示「文件过大，是否仍要打开？」 |
@@ -688,16 +717,17 @@ CM6 paste 事件 → 检测 clipboard 图片 → api.fs.assetsDir({ docPath, fil
 | **M0 骨架** | 工程搭建（electron-vite + Vue3 + TS + Pinia）、主窗口、**全中文菜单栏**、IPC 骨架与 preload 桥、打开/保存/另存为、编码识别 | 能打开 `.md`、编辑、保存；GBK 文件打开不乱码；菜单全中文且快捷键生效 |
 | **M1 编辑器** ✅ | CM6 源码模式、语法高亮、多标签、未保存提示、状态栏（行列/字数/编码/换行）、查找替换、格式化快捷键 | **已达成**，实测见 14.1 / 14.2：1MB 文档按键中位数 9.0ms、零样本超 100ms；Ctrl+S/Ctrl+F/Ctrl+B 等按设计工作 |
 | **M2 视图** | 分栏预览、Live Preview（标题/粗斜体/代码/链接/图片/任务/分隔线）、滚动同步、亮暗主题、大纲、文件树、搜索、打字机/专注模式 | 切换 4 种模式无异常；Live Preview 光标行显源码、其余行渲染；大纲随编辑更新 |
-| **M3 导出 HTML+PDF** | 统一解析管线、单文件 HTML、离屏窗口 printToPDF、导出选项对话框 | 导出 HTML 双击可在浏览器正确显示（样式+高亮齐全）；PDF 分页正确、背景色与中文正常、有页码 |
+| **M3 导出 HTML+PDF** ✅ | 统一解析管线、单文件 HTML、隐藏窗口 printToPDF、导出选项对话框、Ctrl+P 打印 | **已达成（开发态）**，实测见 14.6：导出 HTML 双击可在浏览器正确显示（`data-theme` 跟随导出选项而非界面主题、高亮齐全、`javascript:` 已剥）；PDF 105 页、`Identity-H` 中文、7 个内嵌字体。**页码是否真的画在纸上、Ctrl+P 的系统打印对话框、打包 exe 内的复验**这三项需要人眼，见 14.6 末节 |
 | **M4 导出 DOCX** | 自研 `mdast→docx` 转换器（`fromMdast.ts` + `styles.ts`）：中文字体 / 标题 1-6 / 嵌套列表 / 表格 / 代码块底纹 / 图片 / 链接 / 引用，含节点级单测 | Word 2016+ 与 WPS 打开无警告；中文渲染为微软雅黑而非宋体；列表编号层级正确；表格有边框与表头底纹；单测覆盖 5.6 映射表全部行 |
 | **M5 提质** | KaTeX 公式、Mermaid 图表、粘贴图片、自动保存与崩溃恢复、最近文件、偏好设置页、electron-builder 打包 | 安装包可正常安装卸载并关联 `.md`；异常退出后可恢复未保存文档 |
 | **M6（可选）** | 命令面板、多主题、导出图片内联、数学公式转 DOCX 图片、macOS/Linux 产物 | — |
 
 **总体验收（对齐 req.txt）**
 1. ✅ 可查看并编辑 Markdown 文件（打开、编辑、保存、另存为、多标签）；
-2. ❌ **可导出 HTML / PDF / DOCX 三种格式** —— **尚未实现**。`src/main/export/`
-   目前只有路径选择对话框，`exportRun()` 是直接返回 `ok: false` 的桩（M3 / M4 未开工）。
-   这一条是 req.txt 的硬要求，**不达成即不能算交付**。
+2. ⚠️ **可导出 HTML / PDF / DOCX 三种格式** —— **HTML 与 PDF 已完成**（M3，实测见 14.6）；
+   **DOCX 仍是桩**（M4）。`exportRun()` 的 docx 分支返回「计划在 M4 完成」——对话框、
+   路径选择、错误处理三处都已就位，M4 只需翻转该分支并补 DOCX 选项段。
+   这一条是 req.txt 的硬要求，**DOCX 落地前仍不能算完全交付**。
 3. ✅ 应用菜单全部为中文。
 
 ---
@@ -774,6 +804,18 @@ CM6 paste 事件 → 检测 clipboard 图片 → api.fs.assetsDir({ docPath, fil
 | D-17 | 正文配色的作用域 | 只收敛 `--cm-*` 变量；**保留**代码块内的语法高亮与链接蓝 | 根因是 `@lezer/markdown` 的标签带 `/...`，含义是**节点及其全部后代**：`"OrderedList/... BulletList/..."` → `tags.list` 于是**列表里的整段正文**都被染成橙色 `#953800`。标题 / 列表 / 行内代码统一改近黑，靠字号字重与浅灰底区分；链接是语义色、围栏代码块里的语法高亮是正常预期，都不在「正文」范围内 |
 | D-18 | 命令行打开文件「窗口已建、监听器未注册」的丢文件竞态 | 新增 `src/main/pending-paths.ts` 缓冲：启动路径改由渲染进程**主动拉**（新通道 `app:takePendingPaths`），`second-instance` 与 macOS `open-file` 一并过同一个缓冲；渲染进程的监听器注册从 `onMounted` 提到 setup 体内 | `did-finish-load` 是**页面加载**事件，不是「监听器已就绪」事件——中间隔着 `settings.get` + `fs.stat` + `fs.readDir` 三跳 IPC，而 `webContents.send` **在没有监听器时静默丢弃**，表现就是「双击 .md，应用开了但是空文档」。这不是「打包才有」的问题，是**数据相关**的竞态：开发态工作区够大或磁盘够慢同样会丢。缓冲区把「就绪」的定义从「页面加载完」改成「渲染进程自己说它准备好了」，于是不存在可丢的时间窗。另外 `files.newFile()` 原先是**无条件**执行的，即使命令行已给了文件也会多出一个「未命名-1.md」标签，现改为 `files.sessions.length === 0` 守卫 |
 | D-19 | 应用显示名与 `app.getName()` | 新增 `src/shared/app-meta.ts` 集中 `APP_TITLE` / `COMPANY_NAME` / `COPYRIGHT`；菜单改用 `APP_TITLE`；**刻意不给 `package.json` 加 `productName`** | ①「关于 marktext-clone」的成因：菜单取 `app.getName()`，而 `package.json` 没有 `productName`（`electron-builder.yml` 里那个不会写回 package.json——已在打包产物的 asar 里核实，33 MB 中 `productName` 出现 0 次），于是开发态与打包态都返回开发名。②**不加 `productName` 是刻意的**：`app.getName()` 同时喂给 `app.getPath('userData')`，加上它会让配置 / 最近文件 / 崩溃恢复**整体搬到新目录**，现有安装（含已分发的便携版）全部丢失设置——已核实 `%APPDATA%` 下只有 `marktext-clone`。显示名归显示名，存储目录名归存储目录名。③打包层的公司名与版权另走 `package.json` 的 `author` 与 `electron-builder.yml` 的 `copyright`（只影响 exe 文件属性，与 `userData` 无关） |
+
+| D-20 | 渲染管线在 `main/export/pipeline.ts`，主/渲染共用（§5.5:404） | 落在 `src/shared/markdown/{render,sanitize,headings,assets}.ts`；主进程侧只保留 `export/{shell,assets,pdf-options,validate,render-window}.ts` | 主进程**不能 import 渲染进程目录**（两个入口分别打包），`src/shared` 是唯一合法的共享位置。管线顺序是**承重**的：`markdownToHast → processAssets → sanitizeTree → treeToHtml`——`isSafeUrl` 会剥掉 `file:`，所以本地图片必须在 sanitize **之前**内联成 `data:`，颠倒过来图片会被静默吃掉 |
+| D-21 | 预览 HTML 注入 `sandbox=""` 的 iframe `srcdoc`，样式来自 `resources/markdown.css`（§5.5:406） | `PreviewPane.vue` 直接渲染 `<article class="markdown-body">`；样式由 `main.ts` 注入的 `THEME_VARIABLES_CSS` + `MARKDOWN_BODY_CSS` + `HIGHLIGHT_CSS` 提供（M1 起即如此） | **iframe 与「三处共用同一组 CSS 变量」直接冲突**：iframe 里的变量不继承父文档，必须再复制一份进去，也就失去了「结构上不可能漂移」这条性质（D-16 的教训正来自样式没被注入）。安全上也不需要它：管线把原始 HTML 一律转义成文本、URL 走协议白名单（D-8），产出的片段里没有可执行内容 |
+| D-22 | PDF 追加打印样式 `@page { size: A4; margin: 20mm }`（§5.6:425） | `SHELL_CSS` 的 `@media print` 段**刻意不写** `@page` | `buildPrintToPDFOptions` 用 `preferCSSPageSize: false`，此时 `@page` 是**空操作**：纸张与页边距全部来自 `printToPDF` / `print()` 的参数。留着它只会让下一个读代码的人以为几何来自 CSS，改了不起作用 |
+| D-23 | `loadFile` 后等 `did-finish-load` + `document.fonts.ready`（§5.6:427） | 只等 `loadFile` 的 resolve（即 `did-finish-load`） | 与同一段的 `javascript: false` **互斥**——没有脚本就没有 `document.fonts` 可等。两件事只能留一件，选择留 `javascript: false`：它换来一条结构性保证「打印窗口里不可能有任何脚本执行」。壳里只有本地系统字体（无 `@font-face`、无外链），本来也没有可等的东西 |
+| D-24 | 导出对话框显示导出进度，成功后提供「打开所在文件夹」（§5.6:467） | 两者都没做 | 前者要为一个几百毫秒的操作新开一条主→渲染的推送通道（收益不抵复杂度）；后者需要一个**能带动作按钮**的通知条，属 M5（现有 `layout.notify` 只有文本） |
+| D-25 | 未规定 PDF / 打印路径里相对路径的图片如何解析 | 不写 `<base href>`，改为把剩余的本地 `href` / `src` 用 `pathToFileURL` 绝对化成 `file:///` | `<base>` 能让相对路径可解析，但**同时会把 `href="#锚点"` 解析成目录 URL**——点击从「跳到本章」变成「跳进目录列表」。用它换图片显示不划算 |
+| D-26 | 未规定「暗色 + 不打印背景」这个选项组合 | `effectivePrintTheme()`：`printBackground === false ⇒ 'light'` | 暗色主题的前景是**浅色**，而 `printBackground: false` 不打印背景——白纸上只剩浅色文字，几乎不可见。这个坑不在任何一个单独选项上，只在它们的**组合**里，所以必须由代码派生而不是靠文档提醒 |
+| D-27 | 无（编码缺陷，不是设计偏离） | `withActiveDocument` 改为 `async function`；新增 `src/renderer/commands/index.test.ts`（15 条） | 它曾被写成柯里化的 `(fn) => () => {...}`，而两个调用点都是 `await withActiveDocument(fn)`。**`await` 一个函数是合法的**——立刻求值成那个函数本身，回调永不执行 →「导出 HTML / 导出 PDF / 打印」三个菜单项**静默变成空操作**：不报错、不提示、`tsc` 也拦不住（它只看到「await 了一个非 Promise 值」）。命令接线层此前**零覆盖**，所以补的断言全是**用户可观察的结果**（对话框开没开、IPC 带的什么参数、提示文案），并用「临时改回旧写法 → 11 条里 8 条失败」验证过这组测试真的抓得住它 |
+| D-28 | 未规定主进程如何消费纯 ESM 依赖 | `electron.vite.config.ts` 用 `externalizeDeps: { exclude: MAIN_BUNDLED }`；`test/export-boundary.test.ts` 断言 `MAIN_EXTERNAL` / `MAIN_BUNDLED` | electron-vite **默认把 `dependencies` 全部留成 external**，于是 unified 系（纯 ESM、且清一色 default 导出）在 CJS 主进程里挂掉。报错是 `.use()` 那一行的 `Expected usable value but received an empty preset…`——**看着像 unified 用法错误，实际是模块格式问题**，而且渲染进程永远复现不了、单测也测不出来（单测走 vitest 的 ESM 解析，不走主进程的 CJS 产物）。所以这条只能靠结构性断言在提交前拦住 |
+| D-29 | 主题只有「浅色 / 深色 / 跟随系统」三项选择（§5.5、§6） | 新增 `COMMANDS.VIEW_TOGGLE_THEME`（`Ctrl+Shift+D`）、状态栏**常显**主题按钮（点击循环三档）、菜单三项改 radio 打勾 | 三个 radio 只能表达「选哪一档」；想临时看一眼相反的一档要穿两层菜单。`toggledTheme(current, resolved)` 的语义是**按此刻实际生效的那一档取反**——处于「跟随系统」且系统是深色时按下去要变浅色；若只按字面「切到另一档」而不看 `resolved`，跟随时按下去会**看不出任何变化**。另外菜单是**静态**的，radio 的 `checked` 想跟上就必须重建，故 `SETTINGS_SET` 在主题真的变化时走 `refreshAppMenuSoon()`（去抖 200ms：状态栏那个按钮是「点一下换一档」，连点会连改，而重建菜单是会把已展开菜单关掉的重操作） |
+| D-30 | 只规定「侧边栏显隐与宽度持久化」（§5.3:373），未规定载入文档后停在哪一页签 | 新增 `layout.showOutline()`；**从外部**打开文档后展开侧边栏并切到「大纲」。落点在 `files.openPaths()`（复数），不在两个调用点各写一遍 | 判据是**单复数**：对话框 / 命令行 / 最近文件 / 二次启动都走 `openPaths`，在文件树里点文件走 `openPath`（单数）——后者是在**浏览文件**，把页签从「文件」抢走会让你连开几个文件时每次都要点回来。写在一处，「将来多一条外部入口（拖放）也自动适用」才是结构性质而不是靠调用点自觉。另外三点：①**不复用 `setSidebarTab`**——它带「点已激活页签 = 收起」的手感，当前正好停在大纲上时复用会把侧边栏收掉，与意图相反；②侧边栏**收起时也强制展开**（已确认的口径），代价是习惯收起侧栏的用户每开一篇文档会被弹开一次；③一个路径都没打开成功时**不动**，否则「文件不存在」的提示之外还白改一次用户配置。`newFile()` 不走这条路，所以新建空白文档不触发——空文档没有标题，弹一个「当前文档没有标题」的大纲没有意义 |
 
 ### 14.1 M1 实测性能数据
 
@@ -968,14 +1010,101 @@ powershell -File scripts/probe-cdp.ps1 -Port 9224 -Expression "<js>"
 
 #### 一条顺带发现（不在本次范围）
 
-`lastOpenFolder` **只由菜单的「打开文件夹…」命令写入**（`commands/index.ts:64`），
+`lastOpenFolder` **只由菜单的「打开文件夹…」命令写入**（`commands/index.ts` 的
+`FILE_OPEN_FOLDER` 分支，当前在 :180——写命令名而不是行号，因为它已经漂过一次），
 `workspace.openFolder()` 自身不写回。因此「用命令行打开一个 md」自动推导出的工作区
 **不会被记住**，下次启动不会还原它。第 2 项需要还原工作区，是靠先手工写入
 `lastOpenFolder`（等价于用户点过一次「打开文件夹」）才验成的。
 这是否是期望行为需要你定：**倾向保持现状**——自动推导出的目录不是用户的选择，
 把它当成「上次打开的文件夹」写回去，等于让一次双击悄悄改掉用户的偏好设置。
 
+### 14.6 导出 HTML / PDF 的实机验证（M3）
+
+验证方式：开发态（`electron out/main/index.js` + `--remote-debugging-port=9223`
++ `--inspect=9229`），用 `scripts/probe-cdp.ps1` 分别连接渲染进程与主进程调试目标。
+导出 HTML 走**完整菜单链路**（菜单 → 导出选项对话框 → 选路径 → 写盘）；
+PDF 与打印由同一份 `exportRun` 的相邻分支进入。
+
+| # | 场景 | 实测 |
+| --- | --- | --- |
+| 1 | 导出 HTML（完整链路） | 1,523,393 字节。`lang="zh-CN"`、`data-theme="light"`、`<title>` 已转义（`a<script>.md` 不会破坏文档）、**无 `<base>`**、`javascript:` **0 处**、原始 HTML 被转义进 `<span class="raw-html">`、`hljs` ×54、`language-js` ×1 |
+| 2 | 导出 PDF | `%PDF-1.4`、**105 页**、`/Count 105`、`Identity-H`（CJK 编码）、**7 个内嵌字体**、以 `%%EOF` 正常收尾 |
+| 3 | 外壳主题跟随**导出选项**而非界面主题 | 界面处于**深色**时分别以 `theme:'light'` / `theme:'dark'` 导出，两份外壳分别是 `data-theme="light"` / `data-theme="dark"` |
+| 4 | 状态栏主题按钮循环（D-29） | 深色 → 跟随系统（浅色）→ 浅色，每步 DOM `data-theme`、按钮文案、store 里的 `theme` / `resolvedTheme` 三者同步 |
+| 5 | 菜单主题三项的 radio 打勾（D-29） | 上一步每次变化后重新读取主进程的 `Menu.getApplicationMenu()`，`checked` **每次都跟着重建**（`[深色]` → `[跟随系统]` → `[浅色]`），证明 `SETTINGS_SET` → `refreshAppMenuSoon()` 这条链有效 |
+| 6 | `Ctrl+Shift+D`（D-29） | 从主进程 `webContents.sendInputEvent` 注入**真实按键**（走原生加速键，不是用 CDP 派发命令绕过去）：浅色 → 深色，菜单 radio 同步回到 `[深色]` |
+| 7 | 无文档时的状态栏 | 只显示「就绪」+ 主题按钮——**主题按钮常显**，且点击仍能切换（这正是它被放在 `v-if="session"` 之外的全部理由） |
+
+#### 本轮抓到的两个缺陷
+
+D-27 与 D-28 都是**只在实机验证里才暴露**的，且都属于「静态检查与单测都拦不住」的那一类：
+
+- **D-27（`withActiveDocument` 空转）**：症状是导出/打印的菜单项点了**毫无反应**——
+  没有对话框、没有提示、没有报错、控制台干净。逐项排除过：命令已注册（没有「未实现」告警）、
+  派发通道正常（派发一个不存在的命令会告警）、store 与组件单独驱动时正常（模态能渲染出
+  「导出为 PDF」）、编译产物与源码一致。最后才落到「回调从未被调用」。
+  教训：**`await` 一个函数在语法上完全合法**，`tsc` 只会认为你在 await 一个非 Promise 值；
+  命令接线层这种「把 store 缝在一起」的胶水代码必须有**行为**测试，而不只是类型正确。
+- **D-28（electron-vite 默认 external）**：报错发生在 `unified().use()` 那一行，
+  读起来像用错了 API，实际是 CJS 主进程 `require` 到了纯 ESM 包。
+
+#### 三条已知限制
+
+1. **非内嵌 HTML 换个目录就会丢图。** `embedImages:false` 时图片保留相对 `src`；
+   把导出的 HTML 挪到别的目录后，相对路径就指向原目录之外 → 图裂。想要真正的单文件
+   必须勾「内联图片」。这是取舍不是 bug，但没人会预期到，所以写在这里。
+2. **PDF 的页码只做了间接验证。** 内容流是压缩的，从产物里读不出文字。已验证的是
+   `/Count 105`、页脚模板含 `pageNumber` / `totalPages`、且**带显式 `font-size:9px`**
+   （模板在无 CSS 的裸文档里渲染，不给字号就是 ~0px 看不见）。「页码在纸上清晰、没被裁」
+   仍需要人眼。
+3. **`Ctrl+P` 的系统打印对话框没自动测。** 它会在使用者的桌面上弹窗，刻意没碰。
+   命令链路本身已由单测覆盖（走 `print` 通道、不选路径、不写盘、用户取消不报错）。
+
+#### 一条验证环境须知（本轮新增）
+
+**`electron out/main/index.js` 用的不是 `marktext-clone` 那份配置。** 这种启动方式下
+`app.getAppPath()` 是 `out/main`，`app.getName()` 回落到 `"Electron"`，于是配置落到了
+`%APPDATA%\Electron\settings.json`——与**打包态 / `npm run dev`**（`%APPDATA%\marktext-clone\`）
+是两份互不相干的 profile。探针里读到的主题、最近文件、侧栏状态**都可能不是用户那一份**。
+这与 D-19 是同一件事的两面：那里说「不加 `productName` 是为了不搬家 `userData`」，
+这里说「`app.getName()` 在非标准启动方式下会变」。
+
+#### 一次未能归因的「自开文件」
+
+某一轮探针启动后，窗口里出现了 `E:\cc\marktext_git\test\llms-full.md`（1 MB）。
+已排除：命令行（`extractDocumentPaths(argv)` 对 `out/main/index.js` 与两个开关都返回空）、
+工作区还原（`lastOpenFolder` 为 `null`）、崩溃恢复（渲染进程无调用方），
+以及任何启动期自动打开——**干净重启后 18 秒内始终只有 1 个空白标签，不重现**。
+剩下的入口只有两个，且都需要**交互**：工作区文件树点击、或菜单「文件 → 打开最近文件」。
+该文件确实在 `Electron` profile 的最近文件里，事后还被移到了列表首位——正是
+`openPath → recent.add` 的副作用。**结论：不是启动期缺陷，但那一轮由谁触发无法从代码侧判定。**
+记在这里，而不是当成已解决。
+
+### 14.7 「载入文档显示大纲」的实机验证（D-30）
+
+验证方式与 14.6 相同（`electron out/main/index.js` + CDP 探针），但这一轮刻意**从命令行
+参数载入文档**，走的是真实的外部打开链路而不是直接调 store。
+
+起点由探针 profile 天然给出：`%APPDATA%\Electron\settings.json` 里是
+`{ visible: false, tab: 'search' }`——**收起、且停在搜索**。这比造一个「已经是文件树」
+的起点更有信息量：三个断言一次全测到。
+
+| # | 场景 | 实测 |
+| --- | --- | --- |
+| 1 | 命令行载入 `preview-check.md` | `.sidebar` **出现在 DOM 里**（起点是 `visible:false`，所以这是展开动作真的执行了）、`.sidebar__tab--active` 是**大纲**、`.outline-item` 渲染出 **6 条**（`实时预览验证文档` / `无序列表` / `有序列表` …） |
+| 2 | 反向：文件树内点击不动页签 | 先把页签拨回「文件」，再调 `files.openPath()`（**单数**，即 `FileTreeNode.vue` 的调用）：文档确实打开了（`activeSession.name === 'preview-check.md'`），而 `{tab:'files', visible:true}` **前后完全一致** |
+
+第 2 条才是这条行为的承重断言。只测第 1 条的话，把 `showOutline()` 挪进 `openPath`
+也照样全绿——而那恰好是用户最容易被惹恼的退化：正浏览文件树，点一个文件页签就被抢走。
+所以 `src/renderer/stores/files.test.ts` 里把这两个方向都钉住了（9 条）。
+
+一个**已知的、刻意接受的**副作用：本机 `%APPDATA%\marktext-clone\settings.json` 里
+`sidebar.visible` 是 `false`——也就是说习惯收起侧边栏的人，每开一篇文档会被弹开一次。
+这是「收起状态也强制展开」这条口径的直接后果（见 D-30），不是缺陷。
+
 ---
 
-*文档结束 · M0、M1 已完成编码；M1 验收见 14.1 / 14.2，打包产物见 14.3，
-表格与配色修复的实机验证见 14.4，命令行打开文件与关于对话框的验证见 14.5，M2 待启动*
+*文档结束 · M0、M1 已完成并实机验证；M3（导出 HTML / PDF）已完成编码与开发态实机验证（见 14.6），
+其中 PDF 页码、`Ctrl+P` 系统打印对话框、以及打包 exe 内的复验待人工确认；
+日夜切换（D-29）与「载入文档显示大纲」（D-30）已实机验证；
+M2 剩余的 KaTeX / Mermaid / 滚动同步 / 工作区搜索，与 M4（DOCX）待启动*

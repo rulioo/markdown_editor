@@ -50,6 +50,23 @@ export const useLayoutStore = defineStore('layout', () => {
     await settingsStore.update({ sidebar: { ...settingsStore.settings.sidebar, tab, visible: true } })
   }
 
+  /**
+   * 展开侧边栏并切到「大纲」——「载入文档就显示大纲」这条行为的落点。
+   *
+   * 刻意**不复用 `setSidebarTab`**：那个函数带「点已激活的页签 = 收起」的手感
+   * （见上面的注释），而这里要的是「让它显示大纲」。当前正好停在大纲上时复用
+   * 会把侧边栏收起来，恰好和意图相反。
+   *
+   * 已经是「可见 + 大纲」时直接返回：载入文档是高频动作，不该每次都走一趟
+   * IPC + 落盘，换来的却是一个没变化的配置。
+   */
+  async function showOutline(): Promise<void> {
+    if (sidebarVisible.value && sidebarTab.value === 'outline') return
+    await settingsStore.update({
+      sidebar: { ...settingsStore.settings.sidebar, visible: true, tab: 'outline' }
+    })
+  }
+
   async function setSidebarWidth(width: number): Promise<void> {
     const clamped = Math.min(480, Math.max(200, Math.round(width)))
     await settingsStore.update({
@@ -122,6 +139,7 @@ export const useLayoutStore = defineStore('layout', () => {
     setMode,
     toggleSidebar,
     setSidebarTab,
+    showOutline,
     setSidebarWidth,
     toggleStatusBar,
     toggleTypewriter,

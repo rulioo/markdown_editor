@@ -155,6 +155,17 @@ export const useFilesStore = defineStore('files', () => {
     }
   }
 
+  /**
+   * 从**外部**打开一批文档：对话框、命令行参数、最近文件、二次启动推送——
+   * 全都汇到这里。打开后把侧边栏切到「大纲」，因为刚载入一篇文档时想看的是它。
+   *
+   * 判据是这个函数的**复数**：在文件树里点来点去走的是上面的 `openPath`（单数），
+   * 那是在浏览文件，不该把页签从「文件」抢走。所以这条行为写在这里而不是两个
+   * 调用点各写一遍，将来多一条外部入口（例如拖放）也自动适用。
+   *
+   * 一个都没打开成功时**不动**侧边栏：文件不存在时提示已经给了，再顺手改掉
+   * 用户的页签就是纯粹的多余动作。
+   */
   async function openPaths(paths: string[]): Promise<void> {
     let last: FileSession | null = null
     for (const p of paths) {
@@ -162,7 +173,9 @@ export const useFilesStore = defineStore('files', () => {
       if (session) last = session
     }
     // 多选打开时只激活最后一个，避免标签顺序错乱
-    if (last) activeId.value = last.id
+    if (!last) return
+    activeId.value = last.id
+    await layout.showOutline()
   }
 
   /* -------------------------------- 保存 -------------------------------- */

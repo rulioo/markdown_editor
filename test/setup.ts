@@ -27,3 +27,26 @@ if (!('Range' in globalThis) || !Range.prototype.getClientRects) {
 if (!globalThis.cancelAnimationFrame) {
   globalThis.cancelAnimationFrame = (handle: number) => clearTimeout(handle)
 }
+
+/**
+ * jsdom 没有 matchMedia。
+ *
+ * settings store 在**模块顶层**就调用它监听系统深浅色，所以任何 import 到该 store
+ * 的测试都会在「导入期」炸掉——不是「用到主题功能时」才炸。永远返回不匹配，
+ * 也就是测试环境固定按浅色解析；需要暗色的用例自己显式设主题。
+ *
+ * 判据用 `typeof !== 'function'` 而不是 `'matchMedia' in window`：这个环境下属性
+ * 存在但**不是函数**，`in` 会判成「有」，于是补丁被跳过、照样炸。
+ */
+if (typeof window.matchMedia !== 'function') {
+  window.matchMedia = ((query: string) => ({
+    matches: false,
+    media: query,
+    onchange: null,
+    addEventListener: () => undefined,
+    removeEventListener: () => undefined,
+    addListener: () => undefined,
+    removeListener: () => undefined,
+    dispatchEvent: () => false
+  })) as unknown as typeof window.matchMedia
+}

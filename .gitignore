@@ -8,3 +8,7 @@ release/
 
 # 由 scripts/make-icon.cjs 生成，跑 npm run icon 即可复现
 build/
+
+# 探针脚本的临时目录：导出的 HTML、被打开来验证的文档、重定向的日志。
+# 里面是**本机实验产物**，不是源码——`probe.md` 还是从别处拷来验证大文件用的。
+.tmp-probe/
